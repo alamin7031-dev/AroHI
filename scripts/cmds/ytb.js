@@ -94,19 +94,18 @@ module.exports = {
                 const input = args.slice(1).join(" ");
                 if (!input) return message.SyntaxError();
 
-                const apiUrl = await baseApiUrl();
                 const checkurl = /^(?:https?:\/\/)?(?:m\.|www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))((\w|-){11})(?:\S+)?$/;
                 
                 if (checkurl.test(input)) {
                         const videoID = input.match(checkurl)[1];
                         api.setMessageReaction("🐤", messageID, () => {}, true);
-                        if (type === 'info') return fetchInfo(api, threadID, messageID, videoID, apiUrl, getLang);
-                        return handleDownload(api, threadID, messageID, videoID, type, apiUrl, getLang);
+                        if (type === 'info') return fetchInfo(api, threadID, messageID, videoID, getLang);
+                        return handleDownload(api, threadID, messageID, videoID, type, getLang);
                 }
 
                 try {
                         api.setMessageReaction("🐤", messageID, () => {}, true);
-                        const res = await axios.get(`${apiUrl}/api/ytb/search?q=${encodeURIComponent(input)}`);
+                        const res = await axios.get(`${await baseApiUrl()}/api/ytb/search?q=${encodeURIComponent(input)}`);
                         const results = res.data.results.slice(0, 6);
                         if (!results || results.length === 0) return api.sendMessage(getLang("noResult", input), threadID, messageID);
 
@@ -133,7 +132,6 @@ module.exports = {
                                         author: senderID, 
                                         results, 
                                         type, 
-                                        apiUrl,
                                         menuMessageID: info.messageID 
                                 });
                         }, messageID);
@@ -144,7 +142,7 @@ module.exports = {
         },
 
         onReply: async function ({ event, api, Reply, getLang }) {
-                const { results, type, apiUrl, author, menuMessageID } = Reply;
+                const { results, type, author, menuMessageID } = Reply;
                 if (event.senderID !== author) return;
                 
                 const targetMessageID = menuMessageID || Reply.messageID;
@@ -157,55 +155,41 @@ module.exports = {
                 const videoID = results[choice - 1].id;
                 
                 api.unsendMessage(targetMessageID);
-                api.setMessageReaction("⌛", event.messageID, () => {}, true);
-               
-                if (type === 'info') return fetchInfo(api, event.threadID, event.messageID, videoID, apiUrl, getLang);
-                await handleDownload(api, event.threadID, event.messageID, videoID, type, apiUrl, getLang);
+                api.setMessageReaction("⌛", event.messageID, () => {}, true);               
+                if (type === 'info') return fetchInfo(api, event.threadID, event.messageID, videoID, getLang);
+                await handleDownload(api, event.threadID, event.messageID, videoID, type, getLang);
         }
 };
 
-async function handleDownload(api, threadID, messageID, videoID, type, apiUrl, getLang) {
+async function handleDownload(api, threadID, messageID, videoID, type, getLang) {
         const format = type === 'audio' ? 'mp3' : 'mp4';
-        const cacheDir = path.join(__dirname, 'cache');
-        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-        
-        const filePath = path.join(cacheDir, `yt_${Date.now()}.${format}`);
 
         try {
-                const res = await axios.get(`${apiUrl}/api/ytb/get?id=${videoID}&type=${type}`);
-                const { title, downloadLink } = res.data.data;
-                
+                const res = await axios.get(`${await baseApiUrl()}/api/ytb/get?id=${videoID}&type=${type}`);
+                const { title, downloadLink } = res.data.data;                
                 api.sendMessage(getLang("downloading", getLang(type), title), threadID, messageID);
                 
                 const response = await axios({ url: downloadLink, method: 'GET', responseType: 'stream' });
-                const writer = fs.createWriteStream(filePath);
-                response.data.pipe(writer);
+                const stream = response.data;
+                stream.path = `yt_${Date.now()}.${format}`;
 
-                writer.on('finish', () => {
-                        api.sendMessage({
-                                body: title,
-                                attachment: fs.createReadStream(filePath)
-                        }, threadID, () => { 
-                                api.setMessageReaction("✅", messageID, () => {}, true);
-                                if (fs.existsSync(filePath)) fs.unlinkSync(filePath); 
-                        }, messageID);
-                });
-                
-                writer.on('error', (err) => {
-                        throw err;
-                });
+                api.sendMessage({
+                        body: title,
+                        attachment: stream
+                }, threadID, () => {
+                        api.setMessageReaction("✅", messageID, () => {}, true);
+                }, messageID);
         } catch (e) {
                 api.sendMessage(getLang("error", "Download failed!"), threadID, messageID);
         }
 }
 
-async function fetchInfo(api, threadID, messageID, videoID, apiUrl, getLang) {
+async function fetchInfo(api, threadID, messageID, videoID, getLang) {
         try {
-                const res = await axios.get(`${apiUrl}/api/ytb/details?id=${videoID}`);
+                const res = await axios.get(`${await baseApiUrl()}/api/ytb/details?id=${videoID}`);
                 const d = res.data.details;
                 
-                const formatNum = (num) => String(num).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-                
+                const formatNum = (num) => String(num).replace(/\B(?=(\d{3})+(?!\d))/g, ".");                
                 const msg = getLang("info", 
                         d.title, d.channel, formatNum(d.subCount || 0), d.duration_raw || d.duration, 
                         formatNum(d.view_count || 0), formatNum(d.like_count || 0), d.upload_date || 'N/A', videoID, d.webpage_url
@@ -216,8 +200,7 @@ async function fetchInfo(api, threadID, messageID, videoID, apiUrl, getLang) {
 
                 const thumbPath = path.join(cacheDir, `info_${videoID}.jpg`);
                 const thumbRes = await axios.get(d.thumbnail, { responseType: 'arraybuffer' });
-                fs.writeFileSync(thumbPath, Buffer.from(thumbRes.data));
-                
+                fs.writeFileSync(thumbPath, Buffer.from(thumbRes.data));                
                 api.sendMessage({ body: msg, attachment: fs.createReadStream(thumbPath) }, 
                         threadID, () => { 
                                 api.setMessageReaction("✅", messageID, () => {}, true);
@@ -226,4 +209,4 @@ async function fetchInfo(api, threadID, messageID, videoID, apiUrl, getLang) {
         } catch (e) {
                 api.sendMessage(getLang("error", e.message), threadID, messageID);
         }
-                        }
+}
