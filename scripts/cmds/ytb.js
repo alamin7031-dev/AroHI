@@ -11,7 +11,7 @@ module.exports = {
         config: {
                 name: "ytb",
                 aliases: ["youtube", "yt"],
-                version: "2.7",
+                version: "4.0.7",
                 author: "MahMUD",
                 countDown: 10,
                 role: 0,
@@ -45,7 +45,6 @@ module.exports = {
                         choose: "%1Reply tin nhắn với số để chọn hoặc nội dung bất kì để gỡ",
                         video: "video",
                         audio: "âm thanh",
-                        downloading: "⬇️ Đang tải xuống %1 \"%2\"",
                         noVideo: "⭕ Rất tiếc, không tìm thấy video nào hợp lệ",
                         noAudio: "⭕ Rất tiếc, không tìm thấy audio nào hợp lệ",
                         info: "💠 Tiêu đề: %1\n🏪 Channel: %2\n👨‍👩‍👧‍👦 Subscriber: %3\n⏱ Thời gian video: %4\n👀 Lượt xem: %5\n👍 Lượt thích: %6\n🆙 Ngày tải lên: %7\n🔠 ID: %8\n🔗 Link: %9"
@@ -56,7 +55,6 @@ module.exports = {
                         choose: "%1Reply to the message with a number to choose or any content to cancel",
                         video: "video",
                         audio: "audio",
-                        downloading: "⬇️ Downloading %1 \"%2\"",
                         noVideo: "⭕ Sorry, no video was found",
                         noAudio: "⭕ Sorry, no audio was found",
                         info: "💠 Title: %1\n🏪 Channel: %2\n👨‍👩‍👧‍👦 Subscriber: %3\n⏱ Video duration: %4\n👀 View count: %5\n👍 Like count: %6\n🆙 Upload date: %7\n🔠 ID: %8\n🔗 Link: %9"
@@ -155,7 +153,8 @@ module.exports = {
                 const videoID = results[choice - 1].id;
                 
                 api.unsendMessage(targetMessageID);
-                api.setMessageReaction("⌛", event.messageID, () => {}, true);               
+                api.setMessageReaction("⌛", event.messageID, () => {}, true);
+               
                 if (type === 'info') return fetchInfo(api, event.threadID, event.messageID, videoID, getLang);
                 await handleDownload(api, event.threadID, event.messageID, videoID, type, getLang);
         }
@@ -166,8 +165,8 @@ async function handleDownload(api, threadID, messageID, videoID, type, getLang) 
 
         try {
                 const res = await axios.get(`${await baseApiUrl()}/api/ytb/get?id=${videoID}&type=${type}`);
-                const { title, downloadLink } = res.data.data;                
-                api.sendMessage(getLang("downloading", getLang(type), title), threadID, messageID);
+                const { title, downloadLink } = res.data.data;
+                
                 
                 const response = await axios({ url: downloadLink, method: 'GET', responseType: 'stream' });
                 const stream = response.data;
@@ -189,7 +188,8 @@ async function fetchInfo(api, threadID, messageID, videoID, getLang) {
                 const res = await axios.get(`${await baseApiUrl()}/api/ytb/details?id=${videoID}`);
                 const d = res.data.details;
                 
-                const formatNum = (num) => String(num).replace(/\B(?=(\d{3})+(?!\d))/g, ".");                
+                const formatNum = (num) => String(num).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+                
                 const msg = getLang("info", 
                         d.title, d.channel, formatNum(d.subCount || 0), d.duration_raw || d.duration, 
                         formatNum(d.view_count || 0), formatNum(d.like_count || 0), d.upload_date || 'N/A', videoID, d.webpage_url
@@ -200,7 +200,8 @@ async function fetchInfo(api, threadID, messageID, videoID, getLang) {
 
                 const thumbPath = path.join(cacheDir, `info_${videoID}.jpg`);
                 const thumbRes = await axios.get(d.thumbnail, { responseType: 'arraybuffer' });
-                fs.writeFileSync(thumbPath, Buffer.from(thumbRes.data));                
+                fs.writeFileSync(thumbPath, Buffer.from(thumbRes.data));
+                
                 api.sendMessage({ body: msg, attachment: fs.createReadStream(thumbPath) }, 
                         threadID, () => { 
                                 api.setMessageReaction("✅", messageID, () => {}, true);
