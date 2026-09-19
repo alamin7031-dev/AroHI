@@ -10,7 +10,7 @@ const baseApiUrl = async () => {
 module.exports = {
         config: {
                 name: "videos",
-                version: "2.7",
+                version: "2.10",
                 author: "MahMUD",
                 countDown: 10,
                 role: 0,
@@ -27,18 +27,18 @@ module.exports = {
 
         langs: {
                 en: {
-                        noInput: "× Baby, please provide a video name! 🔍",
+                        noInput: "× Baby, please provide a video name.",
                         noResult: "× No results found.",
                         select: "𝐒𝐞𝐥𝐞𝐜𝐭 𝐚 𝐯𝐢𝐝𝐞𝐨:\n\n%1• Reply with the number to download",
                         success: "✅ 𝙃𝙚𝙧𝙚'𝙨 𝙮𝙤𝙪𝙧 𝙫𝙞𝙙𝙚𝙤 𝙗𝙖𝙗𝙮\n\n• 𝐓𝐢𝐭𝐥𝐞: %1",
                         error: "× API error: %1. Contact MahMUD for help.\n•WhatsApp: 01836298139"
                 },
                 vi: {
-                        noInput: "× Cưng ơi, vui lòng cung cấp tên video! 🔍",
+                        noInput: "× Cưng ơi, vui lòng cung cấp tên video.",
                         noResult: "× Không tìm thấy kết quả.",
                         select: "𝐒𝐞𝐥𝐞𝐜𝐭 𝐚 𝐯𝐢𝐝𝐞𝐨:\n\n%1• Phản hồi bằng số để tải xuống",
                         success: "✅ Video của cưng đây 😘\n\n• 𝐓𝐢êu đề: %1",
-                        error: "× Lỗi: %1. Liên hệ MahMUD để hỗ trợ.\n•WhatsApp: 01836298139"
+                        error: "× API error: %1. Contact MahMUD for help.\n•WhatsApp: 01836298139"
                 }
         },
 
@@ -102,44 +102,36 @@ module.exports = {
                 const { result, author, menuMessageID } = Reply;
                 if (event.senderID !== author) return;
 
-                const choice = parseInt(event.body);
-                if (isNaN(choice) || choice <= 0 || choice > result.length) return;
-
                 const targetMessageID = menuMessageID || Reply.messageID;
+
+                const choice = parseInt(event.body);
+                if (isNaN(choice) || choice <= 0 || choice > result.length) {
+                        return api.unsendMessage(targetMessageID);
+                }
+
                 api.unsendMessage(targetMessageID);
                 api.setMessageReaction("⌛", event.messageID, () => {}, true);
 
                 const videoID = result[choice - 1].id;
-                const cacheDir = path.join(__dirname, "cache");
-                if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-                const filePath = path.join(cacheDir, `video_${Date.now()}.mp4`);
 
                 try {
                         const res = await axios.get(`${await baseApiUrl()}/api/ytb/get?id=${videoID}&type=video`);
                         const { title, downloadLink } = res.data.data;
 
                         const response = await axios({ url: downloadLink, method: 'GET', responseType: 'stream' });
-                        const writer = fs.createWriteStream(filePath);
-                        response.data.pipe(writer);
+                        const stream = response.data;
+                        stream.path = `video_${Date.now()}.mp4`;
 
-                        writer.on('finish', () => {
-                                message.reply({
-                                        body: getLang("success", title),
-                                        attachment: fs.createReadStream(filePath)
-                                }, () => {
-                                        api.setMessageReaction("✅", event.messageID, () => {}, true);
-                                        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-                                });
-                        });
-
-                        writer.on('error', (err) => {
-                                throw err;
+                        return message.reply({
+                                body: getLang("success", title),
+                                attachment: stream
+                        }, () => {
+                                api.setMessageReaction("✅", event.messageID, () => {}, true);
                         });
 
                 } catch (err) {
                         console.error("error:", err);
                         api.setMessageReaction("❌", event.messageID, () => {}, true);
-                        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
                         return message.reply(getLang("error", err.message || "Download failed!"));
                 }
         }
