@@ -10,35 +10,33 @@ const baseApiUrl = async () => {
 module.exports = {
         config: {
                 name: "song",
-                version: "1.7",
+                version: "2.8",
                 author: "MahMUD",
-                countDown: 5,
+                countDown: 10,
                 role: 0,
                 description: {
-                        bn: "ইউটিউব থেকে গান ডাউনলোড করুন",
                         en: "Download songs/audio from YouTube",
                         vi: "Tải nhạc từ YouTube"
                 },
                 category: "music",
                 guide: {
-                        bn: '   {pn} [গানের নাম বা লিঙ্ক]\n   উদাহরণ: {pn} tui chinli na amay',
                         en: '   {pn} [song name or link]\n   Example: {pn} stay justin bieber',
                         vi: '   {pn} [tên bài hát hoặc link]\n   Ví dụ: {pn} see you again'
                 }
         },
 
         langs: {
-                bn: {
-                        error: "❌ | সমস্যা হয়েছে: %1",
-                        noResult: "⭕ | দুঃখিত বেবি, \"%1\" এর জন্য কিছু খুঁজে পাইনি।",
-                        choose: "গানের তালিকা:\n\n%1\nগানের নাম্বার লিখে রিপ্লাই দিন।",
-                        success: "✅ | ডাউনলোড সম্পন্ন: %1"
-                },
                 en: {
-                        error: "❌ | An error occurred: %1",
+                        error: "× API error: %1. Contact MahMUD for help.\n•WhatsApp: 01836298139",
                         noResult: "⭕ | No search results match the keyword %1",
                         choose: "Song Results:\n\n%1\nReply with a number to download.",
                         success: "✅ | Successfully Downloaded: %1"
+                },
+                vi: {
+                        error: "× API error: %1. Contact MahMUD for help.\n•WhatsApp: 01836298139",
+                        noResult: "⭕ | Không có kết quả tìm kiếm nào phù hợp với từ khóa %1",
+                        choose: "Danh sách bài hát:\n\n%1\nReply với số để tải xuống.",
+                        success: "✅ | Tải xuống thành công: %1"
                 }
         },
 
@@ -53,18 +51,17 @@ module.exports = {
 
                 if (!input) return api.sendMessage("• Please provide a song name or send link.", threadID, messageID);
 
-                const apiUrl = await baseApiUrl();
                 const checkurl = /^(?:https?:\/\/)?(?:m\.|www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))((\w|-){11})(?:\S+)?$/;
 
                 if (checkurl.test(input)) {
                         const videoID = input.match(checkurl)[1];
                         api.setMessageReaction("⌛", messageID, () => {}, true);
-                        return handleDownload(api, threadID, messageID, videoID, apiUrl, getLang);
+                        return handleDownload(api, threadID, messageID, videoID, getLang);
                 }
 
                 try {
                         api.setMessageReaction("⏳", messageID, () => {}, true);
-                        const res = await axios.get(`${apiUrl}/api/ytb/search?q=${encodeURIComponent(input)}`);
+                        const res = await axios.get(`${await baseApiUrl()}/api/ytb/search?q=${encodeURIComponent(input)}`);
                         const results = res.data.results.slice(0, 6);
                         
                         if (!results || results.length === 0) return api.sendMessage(getLang("noResult", input), threadID, messageID);
@@ -90,8 +87,8 @@ module.exports = {
                                 global.GoatBot.onReply.set(info.messageID, { 
                                         commandName, 
                                         author: senderID, 
-                                        results, 
-                                        apiUrl 
+                                        results,
+                                        menuMessageID: info.messageID
                                 });
                         }, messageID);
 
@@ -101,42 +98,40 @@ module.exports = {
         },
 
         onReply: async function ({ event, api, Reply, getLang }) {
-                const { results, apiUrl, author } = Reply;
+                const { results, author, menuMessageID } = Reply;
                 if (event.senderID !== author) return;
                 
+                const targetMessageID = menuMessageID || Reply.messageID;
+                
                 const choice = parseInt(event.body);
-                if (isNaN(choice) || choice <= 0 || choice > results.length) return;
+                if (isNaN(choice) || choice <= 0 || choice > results.length) {
+                        return api.unsendMessage(targetMessageID);
+                }
                 
                 const videoID = results[choice - 1].id;
-                api.unsendMessage(Reply.messageID);
+                
+                api.unsendMessage(targetMessageID);
                 api.setMessageReaction("⌛", event.messageID, () => {}, true);
                
-                await handleDownload(api, event.threadID, event.messageID, videoID, apiUrl, getLang);
+                await handleDownload(api, event.threadID, event.messageID, videoID, getLang);
         }
 };
 
-async function handleDownload(api, threadID, messageID, videoID, apiUrl, getLang) {
-        const cacheDir = path.join(__dirname, 'cache');
-        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-        const filePath = path.join(cacheDir, `music_${Date.now()}.mp3`);
-
+async function handleDownload(api, threadID, messageID, videoID, getLang) {
         try {
-                const res = await axios.get(`${apiUrl}/api/ytb/get?id=${videoID}&type=audio`);
+                const res = await axios.get(`${await baseApiUrl()}/api/ytb/get?id=${videoID}&type=audio`);
                 const { title, downloadLink } = res.data.data;
                 
                 const response = await axios({ url: downloadLink, method: 'GET', responseType: 'stream' });
-                const writer = fs.createWriteStream(filePath);
-                response.data.pipe(writer);
+                const stream = response.data;
+                stream.path = `music_${Date.now()}.mp3`;
 
-                writer.on('finish', () => {
-                        api.sendMessage({
-                                body: getLang("success", title),
-                                attachment: fs.createReadStream(filePath)
-                        }, threadID, () => { 
-                                api.setMessageReaction("✅", messageID, () => {}, true);
-                                if (fs.existsSync(filePath)) fs.unlinkSync(filePath); 
-                        }, messageID);
-                });
+                api.sendMessage({
+                        body: getLang("success", title),
+                        attachment: stream
+                }, threadID, () => {
+                        api.setMessageReaction("✅", messageID, () => {}, true);
+                }, messageID);
         } catch (e) {
                 api.sendMessage(getLang("error", "Download failed!"), threadID, messageID);
         }
